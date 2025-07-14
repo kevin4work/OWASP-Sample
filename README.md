@@ -1,163 +1,51 @@
-# OWASP Top-10 (2017) - Quickstart your security awareness
+# Vulnerable Java application
 
-This repo contains the code examples shared in my [DevConf.us 2020 talk](https://devconfus2020.sched.com/event/eb6835469f571956a331b8382b8ca0a9).
+This repository contains a sample application, the "Websites Tester Service", that's vulnerable to a [Command Injection](https://owasp.org/www-community/attacks/Command_Injection) and [Server-Side Request Forgery (SSRF)](https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/) vulnerability.
 
-Recordings:
-- [Pre-recorded talk](https://www.youtube.com/watch?v=Unf-U_hPpH4)
-- [DevConf.US recording](https://www.youtube.com/watch?v=6Z5hlgZQQt0)
+> **Warning**
+> This application is purposely vulnerable and can trivially be hacked. Don't expose it to the Internet, and don't run it in a production environment.
+> Instead, you can run it locally on your machine, or in a cloud environment on a private VPC.
 
-Slides:
-[SlideShare](https://www.slideshare.net/AllonMureinik/devconfus-2020-owasp-top-10-allon-mureinik)
+## Running locally
 
-## Warning
-
-These demos contain intentionally vulnerable code.
-
-Do not run any of them on a machine which can be accessed by external users.
-
-## Prerequisites
-1. [Git](https://git-scm.com/) - For cloning the repo
-2. [npm](https://www.npmjs.com/get-npm)
-3. [curl](https://curl.haxx.se/) - Not required for running the demo, but some instructions use it
-
-## Installation
-
-Clone the repository:
-```
-git clone https://github.com/mureinik/owasp-top10-demo.git
-```
-
-Install the dependencies:
-```
-npm install
-```
-
-## Demos
-
-### A1:2017 - Injection
-
-Run the Log Injection demo:
-```
-node logi.js
-```
-
-Send a payload of the form `username=XYZ logged in.\nABC&password=123`:
+1. Build the image locally, or use `ghcr.io/datadog/vulnerable-java-application`:
+2. Run:
 
 ```
-curl -d $'username=allon logged in with the password: fakepassword.\nmureinik&password=123' http://localhost:3000/logi
+docker run --rm -p 8000:8000 ghcr.io/datadog/vulnerable-java-application
 ```
 
-You'll see two log in messages in the application's console.
+3. You can then access the web application at http://127.0.0.1:8000
 
-### A2:2017 - Broken Authentication
+## Running on Kubernetes
 
-Run the login demo:
 ```
-node logi.js
-```
-
-Open your browser and navigate to http://localhost:3000/logi.html. As you can easily see, any combination of username
-and password will be accepted by the system. A proper system should have real user management implemented.
-
-### A3:2017 Sensitive data exposure
-
-Run the login demo:
-```
-node logi.js
+kubectl run  vulnerable-application --port=8000 --expose=true --image ghcr.io/datadog/vulnerable-java-application
+kubectl port-forward pod/vulnerable-application 8000
 ```
 
-Open your browser and navigate to http://localhost:3000/logi.html. You can use any combination of username and password
-to log in, and the password will be presented in plain text in the application's console.
+You can then access the web application at http://127.0.0.1:8000
 
-### A4:2017 XML External Entities (XXE)
+## Exploitation
 
-Run the XXE demo:
-```
-node xxe.js
-```
+### Server-side request vulnerability
 
-Send a payload with the following form:
-```
-curl -d '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "/full/path/to/owasp-top10-demo/secret.txt">]><name>&xxe;</name>' http://localhost:3000/xxe
-```
+1. Browse to http://127.0.0.1:8000/website.html
+2. Note how the input allows you to specify arbitrary URLs such as `http://google.com`, but also any internal IP such as `http://169.254.169.254/latest/meta-data/`
+3. When the applications is running in AWS, Azure or GCP, this can often be exploited to retrieve instance metadata credentials
 
-And you should get back the **contents** of the [secret.txt](secret.txt) file, i.e., `THIS IS A SECRET!!!`.
+### Command injection vulnerability
 
-### A5:2017 Broken Access Control
+1. Browse to http://127.0.0.1:8000/index.html
+2. Note how the input allows you to specify domain names such as `google.com` and ping them
+3. Note that there is some level of input validation - entering `$(whoami)` returns `Invalid domain name: $(whoami) - don't try to hack us!`
+4. However, the validation is buggy - notice how you can start the input with a domain name, and execute and command in the container!
 
-Run the session demo:
-```
-node session.js
-```
+### Local file read vulnerability
 
-If you use your browser to navigate to http://localhost:3000/data you'll get an error stating `not logged in`, which is 
-expected.
+1. Browse to http://127.0.0.1:8000/file.html
+2. Note how the input allows you to specify file names such as `/tmp/files/hello.txt` and read them
+3. Note that there is some level of input validation - entering `/etc/passwd` returns `You are not allowed to read /etc/passwd`
+4. However, the validation is buggy and vulnerable to path traversal. For instance, you can enter `/tmp/files/../../etc/passwd` to bypass the validation and read any file on the local filesystem.
 
-You can navigate to http://localhost:3000/session.html and use the credentials `user1`/`password1` to log in, after
-which you'll be redirected to http://localhost:3000/data?username=user1 and we that user's data. Similarly, you can use
-the credentials `user2`/`password2`, and will see a different set of data. However, if you log in as `user1`, you could
-manually navigate to http://localhost:3000/data?username=user2, and will see that user's data.
-
-In other words, this demo implements **authentication**, but does not implement **authorization**.
-
-### A6:2017 Security Misconfiguration
-
-There are several security misconfigurations in these demos. A few obvious ones include:
-- All the demos serve HTTP and not HTTPS
-- [xxe.js](xxe.js) sets `noent: true` when creating the libxmljs parser, thus making the demo vulnerable to XXE
-- [session.js](session.js) uses Express Session, but uses the default configuration (e.g., it doesn't set the `secure` or `maxAge` properties)
-
-### A7:2017 Cross-Site Scripting (XSS)
-
-Run the XSS demo:
-```
-node xss.js
-```
-
-If you use your browser to navigate to http://localhost:3000/xss, you'll see a comments form where you could add your
-opinion of DevConf.us and view previous comments
-
-Send a payload of the following form:
-```
-curl -X POST -d 'comment=<script>window.location.replace("https://github.com/mureinik/owasp-top10-demo")</script>' http://localhost:3000/xss
-```
-
-The next time you navigate to http://localhost:3000/xss, you'll be redirected to this README page.
-
-### A8:2017 Insecure Deserialization
-
-Run the keys demo:
-```
-node keys.js
-```
-
-Send a payload containing a function definition followed by a `()`:
-```
-curl -X POST -H "Content-Type: text/plain" -d '{"key": "_$$ND_FUNC$$_function (){ console.log(\"unserialized!\"); }()"}' http://localhost:3000/keys
-```
-
-You'll see the text "userialized!" printed out in the application's console, proving that arbitrary code could be
-executed. Of course, you could use more malicious code than `console.log`.
-
-### A9:2017 Using Components with Known Vulnerabilities
-
-Run an audit:
-```
-npm audit
-```
-
-You will see the vulnerable packages this project depends on.
-
-### A10:2017 Insufficient Logging & Monitoring
-
-Run the session demo:
-```
-node session.js
-```
-
-Use your browser to navigate to http://localhost:3000/session.html. 
-
-If you use the wrong credentials (e.g., `wronguser`/`wrongpassword`) you'll get an error message, but nothing will be
-logged.
-In fact, this "application" doesn't even have any real logs. 
-# OWASP-Sample
+![image](https://user-images.githubusercontent.com/136675/186954376-e3d82d03-7d9e-49b3-a106-6da080980dae.png)
